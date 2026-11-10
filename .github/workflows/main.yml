@@ -14,7 +14,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: false # Desativado aqui para corrigirmos as URLs no passo seguinte
+          submodules: false
           fetch-depth: 0
 
       - name: Redirecionar URLs antigas e descarregar submódulos
@@ -34,30 +34,48 @@ jobs:
         run: |
           choco install nasm yasm -y --no-progress
 
-      - name: Instalar suporte para Windows XP (v141_xp)
+      - name: Instalar suporte Windows XP e MFC (v141_xp)
         shell: powershell
         run: |
-          Write-Host "A instalar o toolset v141_xp no Visual Studio..."
+          Write-Host "A instalar o compilador e bibliotecas MFC do XP..."
           $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
-          Start-Process -FilePath $installer -ArgumentList "modify --quiet --norestart --productId Microsoft.VisualStudio.Product.Enterprise --channelId VisualStudio.17.Release --add Microsoft.VisualStudio.Component.WinXP --add Microsoft.VisualStudio.Component.VC.v141.x86.x64" -Wait
-          Write-Host "Instalação do toolset XP concluída."
+          Start-Process -FilePath $installer -ArgumentList "modify --quiet --norestart --productId Microsoft.VisualStudio.Product.Enterprise --channelId VisualStudio.17.Release --add Microsoft.VisualStudio.Component.WinXP --add Microsoft.VisualStudio.Component.VC.v141.x86.x64 --add Microsoft.VisualStudio.Component.VC.v141.MFC --add Microsoft.VisualStudio.Component.VC.v141.ATL --add Microsoft.VisualStudio.Component.VC.ATLMFC" -Wait
+          Write-Host "Instalação concluída com sucesso."
 
-      - name: Compilar MPC-HC (x86 Release / Prescott SSE2)
+      - name: Gerar cabeçalho de versão (version.h)
+        shell: bash
+        run: |
+          ./version.sh
+
+      - name: Criar build.user.bat de compatibilidade
+        shell: cmd
+        run: |
+          echo @echo off > build.user.bat
+          echo set "MSYSTEM=MINGW32" >> build.user.bat
+          echo set "MPCHC_MSYS=C:\msys64" >> build.user.bat
+          echo set "MPCHC_MINGW32=C:\msys64\mingw64" >> build.user.bat
+          echo set "MPCHC_MINGW64=C:\msys64\mingw64" >> build.user.bat
+          echo set "MPCHC_VS_PATH=C:\Program Files\Microsoft Visual Studio\2022\Enterprise" >> build.user.bat
+
+      - name: Compilar MPC-HC (MSBuild direto para WinXP / Prescott SSE2)
         shell: cmd
         env:
+          # Otimizações de CPU Pentium 4 Prescott:
+          # /arch:SSE2 = vetorização SSE2
+          # /Oi = funções intrínsecas
+          # /Ot = favorecer velocidade máxima de execução
+          # /Oy = omitir apontador de frame (liberta o registo EBP no x86)
           CL: /arch:SSE2 /Oi /Ot /Oy
         run: |
-          call build.bat x86 Release
+          msbuild mpc-hc.sln /p:Configuration="Release" /p:Platform="Win32" /p:PlatformToolset="v141_xp" /p:TargetPlatformVersion="7.0" /m
+          msbuild mpciconlib.sln /p:Configuration="Release" /p:Platform="Win32" /p:PlatformToolset="v141_xp" /p:TargetPlatformVersion="7.0" /m
 
       - name: Disponibilizar ficheiros para download (Artifacts)
         uses: actions/upload-artifact@v4
         with:
           name: MPC-HC-XP-Prescott-x86
           path: |
-            bin/mpc-hc_x86/mpc-hc.exe
-            bin/mpc-hc_x86/*.dll
-            bin/mpc-hc_x86/*.ax
-            bin/mpc-hc_x86/*.ini
+            bin/mpc-hc_x86/**
             distrib/**.7z
             distrib/**.zip
           if-no-files-found: warn
