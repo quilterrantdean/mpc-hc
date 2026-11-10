@@ -37,35 +37,59 @@ jobs:
       - name: Instalar suporte Windows XP e MFC (v141_xp)
         shell: powershell
         run: |
-          Write-Host "A instalar o compilador e bibliotecas MFC do XP..."
+          Write-Host "A instalar toolset v141_xp e bibliotecas MFC..."
           $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
           Start-Process -FilePath $installer -ArgumentList "modify --quiet --norestart --productId Microsoft.VisualStudio.Product.Enterprise --channelId VisualStudio.17.Release --add Microsoft.VisualStudio.Component.WinXP --add Microsoft.VisualStudio.Component.VC.v141.x86.x64 --add Microsoft.VisualStudio.Component.VC.v141.MFC --add Microsoft.VisualStudio.Component.VC.v141.ATL --add Microsoft.VisualStudio.Component.VC.ATLMFC" -Wait
-          Write-Host "Instalação concluída com sucesso."
+          Write-Host "Instalação concluída."
 
-      - name: Gerar cabeçalho de versão (version.h)
+      - name: Descarregar cabeçalhos e bibliotecas do DirectX 9 SDK
+        shell: powershell
+        run: |
+          Write-Host "A descarregar o DirectX SDK June 2010..."
+          $url = "https://download.microsoft.com/download/A/E/7/AE743F1F-632B-4809-87A9-AA1BB3458E31/DXSDK_Jun10.exe"
+          $dest = "$env:TEMP\DXSDK_Jun10.exe"
+          (New-Object Net.WebClient).DownloadFile($url, $dest)
+          Write-Host "A extrair apenas os ficheiros Include e Lib..."
+          & 7z x $dest -o"C:\DXSDK" "DXSDK/Include/*" "DXSDK/Lib/*" -y | Out-Null
+          Remove-Item $dest -Force
+          Write-Host "DirectX SDK pronto."
+          echo "DXSDK_DIR=C:\DXSDK\DXSDK\" >> $env:GITHUB_ENV
+
+      - name: Configurar LAV Filters pré-compilados (x86)
+        shell: powershell
+        run: |
+          Write-Host "A descarregar LAV Filters 0.70.2 x86 oficiais..."
+          $lavZip = "$env:TEMP\LAVFilters.zip"
+          (New-Object Net.WebClient).DownloadFile("https://github.com/Nevcairiel/LAVFilters/releases/download/0.70.2/LAVFilters-0.70.2-x86.zip", $lavZip)
+          
+          New-Item -ItemType Directory -Force -Path "bin\mpc-hc_x86\LAVFilters" | Out-Null
+          New-Item -ItemType Directory -Force -Path "src\thirdparty\LAVFilters\bin_x86" | Out-Null
+          
+          Expand-Archive -Path $lavZip -DestinationPath "bin\mpc-hc_x86\LAVFilters" -Force
+          Copy-Item "bin\mpc-hc_x86\LAVFilters\*" "src\thirdparty\LAVFilters\bin_x86\" -Force
+          Remove-Item $lavZip -Force
+
+          # Desativar a recompilação redundante do FFmpeg no build_lavfilters.bat
+          Set-Content -Path "src\thirdparty\LAVFilters\build_lavfilters.bat" -Value "@echo off`nexit /b 0"
+          Write-Host "LAV Filters configurados com sucesso."
+
+      - name: Gerar cabeçalho de versão corrigido
         shell: bash
         run: |
+          git tag 1.7.13 2>/dev/null || true
           ./version.sh
-
-      - name: Criar build.user.bat de compatibilidade
-        shell: cmd
-        run: |
-          echo @echo off > build.user.bat
-          echo set "MSYSTEM=MINGW32" >> build.user.bat
-          echo set "MPCHC_MSYS=C:\msys64" >> build.user.bat
-          echo set "MPCHC_MINGW32=C:\msys64\mingw64" >> build.user.bat
-          echo set "MPCHC_MINGW64=C:\msys64\mingw64" >> build.user.bat
-          echo set "MPCHC_VS_PATH=C:\Program Files\Microsoft Visual Studio\2022\Enterprise" >> build.user.bat
 
       - name: Compilar MPC-HC (MSBuild direto para WinXP / Prescott SSE2)
         shell: cmd
         env:
-          # Otimizações de CPU Pentium 4 Prescott:
-          # /arch:SSE2 = vetorização SSE2
-          # /Oi = funções intrínsecas
-          # /Ot = favorecer velocidade máxima de execução
-          # /Oy = omitir apontador de frame (liberta o registo EBP no x86)
-          CL: /arch:SSE2 /Oi /Ot /Oy
+          # Otimizações de CPU Pentium 4 Prescott + correções de compatibilidade C++:
+          # /arch:SSE2 = vetorização SSE2 do Prescott
+          # /Oi /Ot = otimizar para velocidade máxima de descodificação
+          # /permissive = permite resolução de nomes clássica em C++ (corrige KINARGTYPE)
+          # /D_SILENCE... = silencia os avisos de depreciação do STL
+          CL: /arch:SSE2 /Oi /Ot /permissive /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS /D_SILENCE_ALL_MS_EXT_DEPRECATION_WARNINGS
+          INCLUDE: C:\DXSDK\DXSDK\Include;%INCLUDE%
+          LIB: C:\DXSDK\DXSDK\Lib\x86;%LIB%
         run: |
           msbuild mpc-hc.sln /p:Configuration="Release" /p:Platform="Win32" /p:PlatformToolset="v141_xp" /p:TargetPlatformVersion="7.0" /m
           msbuild mpciconlib.sln /p:Configuration="Release" /p:Platform="Win32" /p:PlatformToolset="v141_xp" /p:TargetPlatformVersion="7.0" /m
