@@ -1,0 +1,122 @@
+name: Build MPC-HC Windows XP (Pentium 4 Prescott)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master, develop ]
+
+jobs:
+  build-xp:
+    name: Build x86 (Windows XP / Prescott)
+    runs-on: windows-2019 # VS2019 é obrigatório para suporte ao toolset v141_xp
+
+    steps:
+      - name: Checkout código e submódulos
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Instalar Suporte C++ Windows XP (v141_xp)
+        shell: powershell
+        run: |
+          $installer = Start-Process -FilePath "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe" `
+            -ArgumentList "modify --installPath `"${env:VSINSTALLDIR}`" --add Microsoft.VisualStudio.Component.WinXP --quiet --norestart" `
+            -Wait -PassThru
+          Write-Host "Componente WinXP instalado com código: $($installer.ExitCode)"
+
+      - name: Instalar DirectX SDK (June 2010)
+        shell: powershell
+        run: |
+          choco install directx-sdk -y --no-progress
+          $dxPath = "C:\Program Files (x86)\Microsoft DirectX SDK (June 2010)"
+          echo "DXSDK_DIR=$dxPath" >> $env:GITHUB_ENV
+          echo "$dxPath\Utilities\bin\x86" >> $env:GITHUB_PATH
+
+      - name: Configurar MSYS2 (Compilação interna do FFmpeg e dependências)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW32
+          update: true
+          install: >-
+            base-devel
+            git
+            yasm
+            nasm
+            mingw-w64-i686-toolchain
+
+      - name: Injetar Otimizações Prescott e Windows XP (Directory.Build.props)
+        shell: powershell
+        run: |
+          # Criamos um ficheiro global para o MSBuild aplicar as otimizações
+          # a todos os projetos C++ da solução sem ter de editar dezenas de ficheiros .vcxproj
+          $props = @"
+          <Project>
+            <PropertyGroup>
+              <PlatformToolset>v141_xp</PlatformToolset>
+            </PropertyGroup>
+            <ItemDefinitionGroup Condition="'`$(Platform)'=='Win32'">
+              <ClCompile>
+                <!-- Otimização Máxima de Velocidade mantendo o binário enxuto -->
+                <Optimization>MaxSpeed</Optimization>
+                <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+                <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+                <IntrinsicFunctions>true</IntrinsicFunctions>
+                <WholeProgramOptimization>true</WholeProgramOptimization>
+                <StringPooling>true</StringPooling>
+                <FunctionLevelLinking>true</FunctionLevelLinking>
+                <!-- Instruções SSE2 nativas do Prescott -->
+                <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+                <BufferSecurityCheck>false</BufferSecurityCheck>
+              </ClCompile>
+              <Link>
+                <!-- Subsistema 5.01 garante compatibilidade estrita com XP 32-bits -->
+                <MinimumRequiredVersion>5.01</MinimumRequiredVersion>
+                <SubSystem>Windows,5.01</SubSystem>
+                <!-- Otimizações de linker: elimina código morto e funde blocos idênticos -->
+                <OptimizeReferences>true</OptimizeReferences>
+                <EnableCOMDATFolding>true</EnableCOMDATFolding>
+                <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+              </Link>
+            </ItemDefinitionGroup>
+          </Project>
+          "@
+          Set-Content -Path "Directory.Build.props" -Value $props
+          Get-Content "Directory.Build.props"
+
+      - name: Compilar MPC-HC (Win32 Release)
+        shell: cmd
+        env:
+          # Flags específicas de Prescott para partes em C compiladas via GCC (LAV Filters/FFmpeg)
+          CFLAGS: "-march=prescott -mtune=prescott -msse3 -O2 -pipe -fomit-frame-pointer"
+          CXXFLAGS: "-march=prescott -mtune=prescott -msse3 -O2 -pipe -fomit-frame-pointer"
+        run: |
+          call "%ProgramFiles(x86)%\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars32.bat"
+          
+          :: Executa o script oficial de compilação do MPC-HC
+          if exist "build.bat" (
+              call build.bat Win32 Release
+          ) else (
+              msbuild mpc-hc.sln /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v141_xp /m
+          )
+
+      - name: Organizar e Comprimir Binários
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path "dist_xp" -Force
+          
+          # Copia os executáveis finais gerados na pasta bin
+          if (Test-Path "bin\mpc-hc_x86") {
+              Copy-Item -Path "bin\mpc-hc_x86\*" -Destination "dist_xp" -Recurse
+          } elseif (Test-Path "bin") {
+              Copy-Item -Path "bin\*" -Destination "dist_xp" -Recurse
+          }
+          
+          # Remove ficheiros pesados desnecessários para a execução (.pdb/.iobj/depurações)
+          Get-ChildItem -Path "dist_xp" -Include *.pdb, *.iobj, *.ipdb, *.lib, *.exp, *.obj -Recurse | Remove-Item -Force
+
+      - name: Publicar Executável (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MPC-HC_WinXP_Pentium4_Prescott
+          path: dist_xp/
