@@ -4,7 +4,7 @@ on:
   push:
     branches: [ develop, master, main ]
   pull_request:
-  workflow_dispatch: # Permite iniciar a compilação manualmente com 1 clique
+  workflow_dispatch:
 
 jobs:
   build-xp:
@@ -14,11 +14,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false # Desativado aqui para corrigirmos as URLs no passo seguinte
           fetch-depth: 0
+
+      - name: Redirecionar URLs antigas e descarregar submódulos
+        shell: cmd
+        run: |
+          git config --global url."https://gitea.1f0.de/LAV/".insteadOf "git://git.1f0.de/"
+          git config --global url."https://code.videolan.org/videolan/".insteadOf "git://git.videolan.org/"
+          git config --global url."https://github.com/".insteadOf "git://github.com/"
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Configurar MSBuild
         uses: microsoft/setup-msbuild@v2
+
+      - name: Instalar ferramentas auxiliares (NASM e YASM)
+        shell: powershell
+        run: |
+          choco install nasm yasm -y --no-progress
 
       - name: Instalar suporte para Windows XP (v141_xp)
         shell: powershell
@@ -31,11 +45,6 @@ jobs:
       - name: Compilar MPC-HC (x86 Release / Prescott SSE2)
         shell: cmd
         env:
-          # Otimizações para o Pentium 4 Prescott 32-bit:
-          # /arch:SSE2 = suporte nativo a SSE2 do Prescott
-          # /Oi = funções intrínsecas
-          # /Ot = prioridade absoluta à velocidade
-          # /Oy = liberta o registo EBP no x86 (reduz código e aumenta rapidez)
           CL: /arch:SSE2 /Oi /Ot /Oy
         run: |
           call build.bat x86 Release
