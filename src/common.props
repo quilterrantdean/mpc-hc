@@ -43,6 +43,7 @@
       <TargetMachine Condition="'$(Platform)'=='x64'">MachineX64</TargetMachine>
     </Lib>
     <Link>
+      <AdditionalLibraryDirectories Condition="'$(Platform)'=='Win32' and Exists('$(DXSDK_DIR)Lib\\x86')">$(DXSDK_DIR)Lib\\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <DataExecutionPrevention>true</DataExecutionPrevention>
       <GenerateDebugInformation>Debug</GenerateDebugInformation>
       <RandomizedBaseAddress>true</RandomizedBaseAddress>
