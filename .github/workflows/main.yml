@@ -45,7 +45,7 @@ jobs:
           Start-Process -FilePath $installer -ArgumentList "modify --quiet --norestart --productId Microsoft.VisualStudio.Product.Enterprise --channelId VisualStudio.17.Release --add Microsoft.VisualStudio.Component.WinXP --add Microsoft.VisualStudio.Component.VC.v141.x86.x64 --add Microsoft.VisualStudio.Component.VC.v141.MFC --add Microsoft.VisualStudio.Component.VC.v141.ATL --add Microsoft.VisualStudio.Component.VC.ATLMFC" -Wait
           Write-Host "Instalação concluída."
 
-      - name: Descarregar e preparar DirectX SDK
+      - name: Descarregar e preparar DirectX SDK June 2010
         shell: powershell
         run: |
           Write-Host "A descarregar o DirectX SDK June 2010..."
@@ -55,9 +55,6 @@ jobs:
           Write-Host "A extrair os ficheiros Include e Lib..."
           & 7z x $dest -o"C:\DXSDK" "DXSDK/Include/*" "DXSDK/Lib/*" -y | Out-Null
           Remove-Item $dest -Force
-          
-          # Remover APENAS o d3dcommon.h (o único ficheiro que causava conflitos com o Windows XP SDK)
-          Remove-Item "C:\DXSDK\DXSDK\Include\d3dcommon.h" -Force -ErrorAction SilentlyContinue
           
           Write-Host "DirectX SDK configurado."
           echo "DXSDK_DIR=C:\DXSDK\DXSDK\" >> $env:GITHUB_ENV
@@ -79,31 +76,37 @@ jobs:
           Set-Content -Path "src\thirdparty\LAVFilters\build_lavfilters.bat" -Value "@echo off`nexit /b 0"
           Write-Host "LAV Filters configurados com sucesso."
 
-      - name: Aplicar correções de código C++ e versão
+      - name: Aplicar correções de código C++, DirectX e versão
         shell: powershell
         run: |
           # 1. Corrigir KINARGTYPE em renderingcache.h
           (Get-Content "src\subtitles\renderingcache.h") -replace '\bKINARGTYPE\b', 'typename KTraits::INARGTYPE' | Set-Content "src\subtitles\renderingcache.h"
           
-          # 2. Desativar o script de versão legado
+          # 2. Desativar scripts de versão legados
           Set-Content -Path "update_version.bat" -Value "@echo off`nexit /b 0"
           if (Test-Path "build\update_version.bat") {
             Set-Content -Path "build\update_version.bat" -Value "@echo off`nexit /b 0"
           }
 
-      - name: Gerar cabeçalho de versão garantindo números válidos
-        shell: bash
-        run: |
-          ./version.sh || true
-          # Garantir que MPC_VERSION_REV nunca fica vazio no version.h
-          sed -i 's/#define MPC_VERSION_REV$/#define MPC_VERSION_REV 0/' include/version.h
-          sed -i 's/#define MPC_VERSION_REV $/#define MPC_VERSION_REV 0/' include/version.h
+          # 3. Gerar o version.h
+          bash -c "./version.sh || true"
+
+          # 4. Garantir via PowerShell (suporta CRLF) que MPC_VERSION_REV nunca fica vazio
+          $versionPath = "include\version.h"
+          if (Test-Path $versionPath) {
+            $content = Get-Content $versionPath -Raw
+            $content = $content -replace '#define MPC_VERSION_REV\s*$', '#define MPC_VERSION_REV 0'
+            $content = $content -replace '#define MPC_VERSION_REV\s*\r?\n', "#define MPC_VERSION_REV 0`r`n"
+            Set-Content -Path $versionPath -Value $content -NoNewline
+          }
 
       - name: Compilar MPC-HC (MSBuild direto para WinXP / Prescott SSE2)
         shell: cmd
         env:
           # Otimizações para Pentium 4 Prescott:
-          CL: /arch:SSE2 /Oi /Ot /Oy /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS /D_SILENCE_ALL_MS_EXT_DEPRECATION_WARNINGS
+          # /D_SILENCE... = compatibilidade C++17
+          # /DD3D_COMPILER_VERSION=43 = especifica compilador d3dcompiler_43 do DirectX 9
+          CL: /arch:SSE2 /Oi /Ot /Oy /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS /D_SILENCE_ALL_MS_EXT_DEPRECATION_WARNINGS /DD3D_COMPILER_VERSION=43
         run: |
           msbuild mpc-hc.sln /p:Configuration="Release" /p:Platform="Win32" /p:PlatformToolset="v141_xp" /p:TargetPlatformVersion="7.0" /m
           msbuild mpciconlib.sln /p:Configuration="Release" /p:Platform="Win32" /p:PlatformToolset="v141_xp" /p:TargetPlatformVersion="7.0" /m
