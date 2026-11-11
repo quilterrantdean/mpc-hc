@@ -30,7 +30,7 @@
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>stdafx.h</PrecompiledHeaderFile>
-      <PreprocessorDefinitions>_WINDOWS;WINDOWS;WINVER=0x0501;_WIN32_WINNT=0x0501;NTDDI_VERSION=0x05010300;_WIN32_IE=0x0600;PSAPI_VERSION=1;_USE_MATH_DEFINES;_SILENCE_CXX17_SHARED_PTR_UNIQUE_DEPRECATION_WARNING;TVS_EX_DOUBLEBUFFER=0x0004;MINLONG64=(-0x7fffffffffffffffLL-1);MAXLONG64=0x7fffffffffffffffLL;MAXSIZE_T=((SIZE_T)-1);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_WINDOWS;WINDOWS;WINVER=0x0501;_WIN32_WINNT=0x0501;NTDDI_VERSION=0x05010300;KSAUDIO_SPEAKER_7POINT1_SURROUND=0x0000063F;_WIN32_IE=0x0600;PSAPI_VERSION=1;_USE_MATH_DEFINES;_SILENCE_CXX17_SHARED_PTR_UNIQUE_DEPRECATION_WARNING;TVS_EX_DOUBLEBUFFER=0x0004;MINLONG64=(-0x7fffffffffffffffLL-1);MAXLONG64=0x7fffffffffffffffLL;MAXSIZE_T=((SIZE_T)-1);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(NOMINMAX)'!='False'">NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(Configuration)'=='Debug Filter' Or '$(Configuration)'=='Release Filter'">STANDALONE_FILTER;_USRDLL;_AFX_NO_MFC_CONTROLS_IN_DIALOGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(Platform)'=='Win32'">WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions>
