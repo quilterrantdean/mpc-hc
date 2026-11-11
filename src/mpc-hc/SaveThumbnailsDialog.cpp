@@ -36,6 +36,8 @@ CSaveThumbnailsDialog::CSaveThumbnailsDialog(
     m_cols(cols),
     m_width(width)
 {
+    // Vista's IFileDialog customization is unavailable on Windows XP.
+#if defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0600)
     // customization has to be done before OnInitDialog
     IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
     CStringW str;
@@ -57,6 +59,7 @@ CSaveThumbnailsDialog::CSaveThumbnailsDialog(
     pfdc->EndVisualGroup();
 
     pfdc->Release();
+#endif
 }
 
 CSaveThumbnailsDialog::~CSaveThumbnailsDialog()
@@ -77,6 +80,7 @@ END_MESSAGE_MAP()
 
 BOOL CSaveThumbnailsDialog::OnFileNameOK()
 {
+#if defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0600)
     CComPtr<IFileDialogCustomize> pfdc = GetIFileDialogCustomize();
     CComHeapPtr<WCHAR> result;
 
@@ -93,6 +97,7 @@ BOOL CSaveThumbnailsDialog::OnFileNameOK()
     if (SUCCEEDED(pfdc->GetEditBoxText(IDC_EDIT4, &result))) {
         m_width = _wtoi(result);
     }
+#endif
 
     return __super::OnFileNameOK();
 }

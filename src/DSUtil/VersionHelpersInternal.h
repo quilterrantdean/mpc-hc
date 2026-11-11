@@ -20,7 +20,11 @@
 
 #pragma once
 
+#if defined(_WIN32_WINNT) && (_WIN32_WINNT < 0x0600)
+#include "VersionHelpersXPCompat.h"
+#else
 #include <VersionHelpers.h>
+#endif
 
 // Remove once newer SDK is used
 #ifndef _WIN32_WINNT_WINTHRESHOLD

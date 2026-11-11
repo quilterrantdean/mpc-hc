@@ -33,6 +33,7 @@ CSaveImageDialog::CSaveImageDialog(
                 lpszFilter, pParentWnd, 0),
     m_nJpegQuality(nJpegQuality)
 {
+#if defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0600)
     IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
     CString str;
 
@@ -43,6 +44,7 @@ CSaveImageDialog::CSaveImageDialog(
     pfdc->EndVisualGroup();
 
     pfdc->Release();
+#endif
 }
 
 CSaveImageDialog::~CSaveImageDialog()
@@ -61,12 +63,14 @@ END_MESSAGE_MAP()
 
 BOOL CSaveImageDialog::OnFileNameOK()
 {
+#if defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0600)
     CComPtr<IFileDialogCustomize> pfdc = GetIFileDialogCustomize();
     CComHeapPtr<WCHAR> result;
 
     if (SUCCEEDED(pfdc->GetEditBoxText(IDC_EDIT1, &result))) {
         m_nJpegQuality = _wtoi(result);
     }
+#endif
 
     m_nJpegQuality = std::max(0, std::min(100, m_nJpegQuality));
 
@@ -77,6 +81,7 @@ void CSaveImageDialog::OnTypeChange()
 {
     __super::OnTypeChange();
 
+#if defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0600)
     IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
 
     if (m_pOFN->nFilterIndex == 2) { // JPEG encoding is chosen
@@ -90,4 +95,5 @@ void CSaveImageDialog::OnTypeChange()
     }
 
     pfdc->Release();
+#endif
 }

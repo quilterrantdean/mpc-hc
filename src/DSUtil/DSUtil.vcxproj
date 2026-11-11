@@ -93,6 +93,7 @@
     <ClInclude Include="vd.h" />
     <ClInclude Include="vd_asm.h" />
     <ClInclude Include="VersionHelpersInternal.h" />
+    <ClInclude Include="VersionHelpersXPCompat.h" />
     <ClInclude Include="WinapiFunc.h" />
     <ClInclude Include="WinAPIUtils.h" />
   </ItemGroup>
