@@ -22,7 +22,6 @@
 #pragma once
 
 #include <SharedInclude.h>
-#include "../filters/atl_xp_socket_compat.h"
 
 #include <afxwin.h>                         // MFC core and standard components
 #include <afxext.h>                         // MFC extensions
@@ -32,6 +31,9 @@
 #include <afxcmn.h>                         // MFC support for Windows Common Controls
 #endif // _AFX_NO_AFXCMN_SUPPORT
 #include <afxdlgs.h>
+
+// XP/ATL socket name mapping must follow MFC's Windows.h setup.
+#include "../filters/atl_xp_socket_compat.h"
 
 // APPCOMMAND values absent from the XP-target SDK headers.
 #ifndef APPCOMMAND_DELETE
