@@ -25,6 +25,18 @@
 #include <mpc-hc_config.h>
 #include <d3d9.h>
 
+// The June 2010 DirectX SDK headers do not expose D3D_COMPILER_VERSION
+// consistently across the Windows SDK combinations used for XP builds.
+#ifndef D3D_COMPILER_VERSION
+#define D3D_COMPILER_VERSION MPC_D3D_COMPILER_VERSION
+#endif
+
+#ifdef UNICODE
+#define MPC_D3D_COMPILER_DLL L"d3dcompiler_43.dll"
+#else
+#define MPC_D3D_COMPILER_DLL "d3dcompiler_43.dll"
+#endif
+
 CPixelShaderCompiler::CPixelShaderCompiler(IDirect3DDevice9* pD3DDev, bool fStaySilent)
     : m_hDll(nullptr)
     , m_pD3DCompile(nullptr)
