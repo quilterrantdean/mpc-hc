@@ -33,7 +33,6 @@ jobs:
         shell: powershell
         run: |
           choco install nasm yasm -y --no-progress
-          # Garantir que o yasm.exe fica acessível globalmente
           Copy-Item "C:\ProgramData\chocolatey\bin\yasm.exe" "C:\Windows\System32\yasm.exe" -Force
           Copy-Item "C:\ProgramData\chocolatey\bin\yasm.exe" "src\yasm.exe" -Force
           Set-Content -Path "src\YASM.bat" -Value "@echo off`nyasm.exe %*"
@@ -46,7 +45,7 @@ jobs:
           Start-Process -FilePath $installer -ArgumentList "modify --quiet --norestart --productId Microsoft.VisualStudio.Product.Enterprise --channelId VisualStudio.17.Release --add Microsoft.VisualStudio.Component.WinXP --add Microsoft.VisualStudio.Component.VC.v141.x86.x64 --add Microsoft.VisualStudio.Component.VC.v141.MFC --add Microsoft.VisualStudio.Component.VC.v141.ATL --add Microsoft.VisualStudio.Component.VC.ATLMFC" -Wait
           Write-Host "Instalação concluída."
 
-      - name: Descarregar e preparar DirectX SDK (apenas ficheiros DX9)
+      - name: Descarregar e preparar DirectX SDK
         shell: powershell
         run: |
           Write-Host "A descarregar o DirectX SDK June 2010..."
@@ -57,16 +56,10 @@ jobs:
           & 7z x $dest -o"C:\DXSDK" "DXSDK/Include/*" "DXSDK/Lib/*" -y | Out-Null
           Remove-Item $dest -Force
           
-          # Remover ficheiros do DirectX 10/11 que entram em conflito com o SDK do Windows XP
-          Remove-Item "C:\DXSDK\DXSDK\Include\d3d10*.h" -Force -ErrorAction SilentlyContinue
-          Remove-Item "C:\DXSDK\DXSDK\Include\d3d11*.h" -Force -ErrorAction SilentlyContinue
+          # Remover APENAS o d3dcommon.h (o único ficheiro que causava conflitos com o Windows XP SDK)
           Remove-Item "C:\DXSDK\DXSDK\Include\d3dcommon.h" -Force -ErrorAction SilentlyContinue
-          Remove-Item "C:\DXSDK\DXSDK\Include\d3d9.h" -Force -ErrorAction SilentlyContinue
-          Remove-Item "C:\DXSDK\DXSDK\Include\d3d9types.h" -Force -ErrorAction SilentlyContinue
-          Remove-Item "C:\DXSDK\DXSDK\Include\d3d9caps.h" -Force -ErrorAction SilentlyContinue
-          Remove-Item "C:\DXSDK\DXSDK\Include\dxgi*.h" -Force -ErrorAction SilentlyContinue
           
-          Write-Host "DirectX SDK limpo e pronto."
+          Write-Host "DirectX SDK configurado."
           echo "DXSDK_DIR=C:\DXSDK\DXSDK\" >> $env:GITHUB_ENV
 
       - name: Configurar LAV Filters pré-compilados (x86)
@@ -92,25 +85,24 @@ jobs:
           # 1. Corrigir KINARGTYPE em renderingcache.h
           (Get-Content "src\subtitles\renderingcache.h") -replace '\bKINARGTYPE\b', 'typename KTraits::INARGTYPE' | Set-Content "src\subtitles\renderingcache.h"
           
-          # 2. Desativar o script de versão legado que cancelava o build
+          # 2. Desativar o script de versão legado
           Set-Content -Path "update_version.bat" -Value "@echo off`nexit /b 0"
           if (Test-Path "build\update_version.bat") {
             Set-Content -Path "build\update_version.bat" -Value "@echo off`nexit /b 0"
           }
 
-      - name: Gerar cabeçalho de versão com tag anotada
+      - name: Gerar cabeçalho de versão garantindo números válidos
         shell: bash
         run: |
-          git tag -a 1.7.13 -m "1.7.13" 2>/dev/null || true
-          ./version.sh
+          ./version.sh || true
+          # Garantir que MPC_VERSION_REV nunca fica vazio no version.h
+          sed -i 's/#define MPC_VERSION_REV$/#define MPC_VERSION_REV 0/' include/version.h
+          sed -i 's/#define MPC_VERSION_REV $/#define MPC_VERSION_REV 0/' include/version.h
 
       - name: Compilar MPC-HC (MSBuild direto para WinXP / Prescott SSE2)
         shell: cmd
         env:
           # Otimizações para Pentium 4 Prescott:
-          # /arch:SSE2 = instruções SSE2 nativas do Prescott
-          # /Oi /Ot /Oy = velocidade máxima e libertação do registo EBP no x86
-          # /D_SILENCE... = compatibilidade com bibliotecas modernas
           CL: /arch:SSE2 /Oi /Ot /Oy /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS /D_SILENCE_ALL_MS_EXT_DEPRECATION_WARNINGS
         run: |
           msbuild mpc-hc.sln /p:Configuration="Release" /p:Platform="Win32" /p:PlatformToolset="v141_xp" /p:TargetPlatformVersion="7.0" /m
