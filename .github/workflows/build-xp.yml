@@ -88,19 +88,33 @@ jobs:
             'https://download.microsoft.com/download/A/E/7/AE743F1F-632B-4809-87A9-AA1BB3458E31/DXSDK_Jun10.exe',
             $installer
           )
-          & 7z x $installer -o"C:\DXSDK" "DXSDK/Include/*" "DXSDK/Lib/*" -y | Out-Null
+          & 7z x $installer -o"C:\DXSDK" "DXSDK/Include/*" "DXSDK/Lib/*" "DXSDK/Redist/Jun2010_D3DCompiler_43_x86.cab" "DXSDK/Redist/Jun2010_d3dx9_43_x86.cab" -y | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'Could not extract DirectX SDK June 2010.' }
 
           $include = 'C:\DXSDK\DXSDK\Include'
           # These headers are a matched set. D3Dcompiler.h includes D3D11 shader
           # declarations, which in turn require the DirectX SDK's d3dcommon.h.
-          # Do not delete d3dcommon.h or the D3D11 shader headers.
           foreach ($header in 'd3dcommon.h','d3d11shader.h','D3Dcompiler.h') {
             if (-not (Test-Path (Join-Path $include $header))) {
               throw "Required DirectX SDK header is missing: $header"
             }
           }
+
+          # MPC-HC loads D3DCompiler dynamically. Version 47 requires Vista or newer;
+          # the original June 2010 compiler 43 runtime supports the XP target.
+          $redist = 'C:\DXSDK\DXSDK\Redist'
+          $runtimeDir = Join-Path $env:RUNNER_TEMP 'DirectX-runtime-x86'
+          New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
+          & 7z e (Join-Path $redist 'Jun2010_D3DCompiler_43_x86.cab') "-o$runtimeDir" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract D3DCompiler_43.dll.' }
+          & 7z e (Join-Path $redist 'Jun2010_d3dx9_43_x86.cab') "-o$runtimeDir" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract d3dx9_43.dll.' }
+          foreach ($dll in 'D3DCompiler_43.dll','d3dx9_43.dll') {
+            if (-not (Test-Path (Join-Path $runtimeDir $dll))) { throw "Missing XP DirectX runtime: $dll" }
+          }
+
           "DXSDK_DIR=C:\DXSDK\DXSDK\" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "DXRUNTIME_DIR=$runtimeDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Remove-Item $installer -Force
 
       - name: Install YASM
@@ -177,31 +191,49 @@ jobs:
             throw 'The MPC-HC executable manifest was not generated.'
           }
 
-      - name: Build MPC-HC (Win32, v141_xp, SSE2)
+      - name: Build MPC-HC and icon library (Win32, v141_xp, SSE2)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $configuration = if ($env:BUILD_PROFILE -eq 'Lite') { 'Release Lite' } else { 'Release' }
           New-Item -ItemType Directory -Force -Path 'bin\logs' | Out-Null
-          $log = Join-Path $PWD ("bin\logs\msbuild-" + $env:BUILD_PROFILE + ".log")
-          $args = @(
-            'mpc-hc.sln',
+          $commonArgs = @(
             '/nologo',
             '/m',
             '/v:minimal',
-            "/p:Configuration=$configuration",
             '/p:Platform=Win32',
             '/p:PlatformToolset=v141_xp',
-            '/p:TargetPlatformVersion=7.0',
-            "/flp:LogFile=$log;Verbosity=normal"
+            '/p:TargetPlatformVersion=7.0'
           )
-          & msbuild.exe @args
-          if ($LASTEXITCODE -ne 0) {
-            if (Test-Path $log) { Get-Content $log -Tail 120 }
-            throw "MSBuild failed with exit code $LASTEXITCODE"
+          $projects = @(
+            @{ File = 'mpc-hc.sln'; Configuration = $configuration; Log = 'mpc-hc' },
+            @{ File = 'mpciconlib.sln'; Configuration = 'Release'; Log = 'mpciconlib' }
+          )
+          foreach ($project in $projects) {
+            $log = Join-Path $PWD ("bin\logs\" + $project.Log + ".log")
+            $args = @($project.File) + $commonArgs + @(
+              "/p:Configuration=$($project.Configuration)",
+              "/flp:LogFile=$log;Verbosity=normal"
+            )
+            Write-Host "Building $($project.File) / $($project.Configuration)"
+            & msbuild.exe @args
+            if ($LASTEXITCODE -ne 0) {
+              if (Test-Path $log) { Get-Content $log -Tail 120 }
+              throw "MSBuild failed for $($project.File) with exit code $LASTEXITCODE"
+            }
           }
 
-      - name: Validate XP target and prepare distributable files
+          $output = if ($env:BUILD_PROFILE -eq 'Lite') { 'bin\mpc-hc_x86 Lite' } else { 'bin\mpc-hc_x86' }
+          $iconLib = Join-Path $output 'mpciconlib.dll'
+          if (-not (Test-Path $iconLib)) {
+            if ($env:BUILD_PROFILE -eq 'Lite' -and (Test-Path 'bin\mpc-hc_x86\mpciconlib.dll')) {
+              Copy-Item 'bin\mpc-hc_x86\mpciconlib.dll' $iconLib -Force
+            } else {
+              throw "mpciconlib.dll was not generated in $output"
+            }
+          }
+
+      - name: Validate XP target and assemble complete portable package
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -212,6 +244,9 @@ jobs:
           }
           $exe = Join-Path $buildDir 'mpc-hc.exe'
           if (-not (Test-Path $exe)) { throw "Executable not found: $exe" }
+          if (-not (Test-Path (Join-Path $buildDir 'mpciconlib.dll'))) {
+            throw 'mpciconlib.dll is required but missing.'
+          }
 
           if ($env:BUILD_PROFILE -eq 'Lite') {
             $lavSource = 'bin\mpc-hc_x86\LAVFilters'
@@ -245,6 +280,23 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
           Get-ChildItem -Path $buildDir -Force |
             ForEach-Object { Copy-Item $_.FullName -Destination $dist -Recurse -Force }
+
+          # Required application-local DirectX runtime DLLs for XP shader support.
+          foreach ($dll in 'D3DCompiler_43.dll','d3dx9_43.dll') {
+            $source = Join-Path $env:DXRUNTIME_DIR $dll
+            if (-not (Test-Path $source)) { throw "Runtime dependency is missing: $dll" }
+            Copy-Item $source (Join-Path $dist $dll) -Force
+          }
+
+          $shaderSource = 'src\mpc-hc\res\shaders\external'
+          if (Test-Path $shaderSource) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $dist 'Shaders') | Out-Null
+            Get-ChildItem -Path $shaderSource -Filter '*.hlsl' -File |
+              Copy-Item -Destination (Join-Path $dist 'Shaders') -Force
+          }
+          Copy-Item 'COPYING.txt' $dist -Force
+          Copy-Item 'docs\Authors.txt' $dist -Force
+
           $discard = @('.pdb','.ilk','.iobj','.ipdb','.obj','.lib','.exp')
           Get-ChildItem -Path $dist -File -Recurse |
             Where-Object { $discard -contains $_.Extension.ToLowerInvariant() } |
@@ -252,6 +304,15 @@ jobs:
           if (-not (Get-ChildItem -Path $dist -Filter 'LAVSplitter.ax' -Recurse)) {
             throw 'The LAV Splitter filter is missing from the distributable folder.'
           }
+
+          # Validate all application-local DirectX DLLs are 32-bit PE images.
+          foreach ($dll in 'D3DCompiler_43.dll','d3dx9_43.dll') {
+            $dllBytes = [IO.File]::ReadAllBytes((Join-Path $dist $dll))
+            $dllPe = [BitConverter]::ToInt32($dllBytes, 0x3C)
+            $dllMachine = [BitConverter]::ToUInt16($dllBytes, $dllPe + 4)
+            if ($dllMachine -ne 0x014c) { throw "$dll is not an x86 DLL." }
+          }
+
           Write-Host ("Executable size: {0:N0} bytes" -f (Get-Item $exe).Length)
           Write-Host ("Distributable files: {0}" -f (Get-ChildItem -Path $dist -File -Recurse).Count)
 
