@@ -1,0 +1,267 @@
+name: Build MPC-HC for Windows XP (Pentium 4 Prescott)
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Build profile
+        required: true
+        type: choice
+        default: Full
+        options:
+          - Full
+          - Lite
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mpc-hc-xp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Win32 - Windows XP SP3 - Pentium 4
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      PreferredToolArchitecture: x64
+      MPCHC_XP_TARGET: 'true'
+      BUILD_PROFILE: ${{ github.event.inputs.profile || 'Full' }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Initialise submodules (with HTTPS mirrors)
+        shell: cmd
+        run: |
+          git config --global url."https://gitea.1f0.de/LAV/".insteadOf "git://git.1f0.de/"
+          git config --global url."https://code.videolan.org/videolan/".insteadOf "git://git.videolan.org/"
+          git submodule sync --recursive
+          git submodule update --init --recursive
+          git submodule status --recursive
+
+      - name: Configure MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install Visual C++ v141_xp (VS 2017 toolset)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installerRoot = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+          $vswhere = Join-Path $installerRoot 'vswhere.exe'
+          $setup = Join-Path $installerRoot 'setup.exe'
+          $vsPath = (& $vswhere -latest -products '*' -property installationPath | Select-Object -First 1)
+          if ([string]::IsNullOrWhiteSpace($vsPath)) { throw 'Visual Studio installation not found.' }
+
+          # VS 2022 hosts the v141_xp MSBuild integration under the v150 project-system directory.
+          $xpToolset = Join-Path $vsPath 'MSBuild\Microsoft\VC\v150\Platforms\Win32\PlatformToolsets\v141_xp'
+          if (-not (Test-Path $xpToolset)) {
+            $vsArgs = @(
+              'modify',
+              '--installPath', ('"' + $vsPath.Trim() + '"'),
+              '--add', 'Microsoft.VisualStudio.Component.WinXP',
+              '--add', 'Microsoft.VisualStudio.Component.VC.v141.x86.x64',
+              '--add', 'Microsoft.VisualStudio.Component.VC.v141.ATL',
+              '--add', 'Microsoft.VisualStudio.Component.VC.v141.MFC',
+              '--quiet', '--norestart', '--nocache'
+            )
+            $proc = Start-Process -FilePath $setup -ArgumentList $vsArgs -Wait -PassThru
+            if ($proc.ExitCode -notin @(0, 3010)) { throw "Visual Studio Installer failed: $($proc.ExitCode)" }
+          }
+          if (-not (Test-Path $xpToolset)) { throw "v141_xp not found: $xpToolset" }
+          "MPCHC_VS_PATH=$($vsPath.Trim())" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "XP toolset confirmed: $xpToolset"
+
+      - name: Prepare DirectX SDK June 2010
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:TEMP 'DXSDK_Jun10.exe'
+          (New-Object Net.WebClient).DownloadFile(
+            'https://download.microsoft.com/download/A/E/7/AE743F1F-632B-4809-87A9-AA1BB3458E31/DXSDK_Jun10.exe',
+            $installer
+          )
+          & 7z x $installer -o"C:\DXSDK" "DXSDK/Include/*" "DXSDK/Lib/*" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract DirectX SDK June 2010.' }
+
+          $include = 'C:\DXSDK\DXSDK\Include'
+          # Avoid duplicate D3D10/11 declarations against the XP-era Windows SDK.
+          # D3Dcompiler.h is deliberately retained: PixelShaderCompiler.h includes it.
+          Remove-Item (Join-Path $include 'd3dcommon.h') -Force -ErrorAction SilentlyContinue
+          Get-ChildItem $include -File -Include 'd3d10*.h','d3d11*.h','dxgi*.h' |
+            Remove-Item -Force
+          if (-not (Test-Path (Join-Path $include 'D3Dcompiler.h'))) {
+            throw 'D3Dcompiler.h is missing from the DirectX SDK.'
+          }
+          "DXSDK_DIR=C:\DXSDK\DXSDK\" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Remove-Item $installer -Force
+
+      - name: Install YASM
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install yasm -y --no-progress
+          $yasm = 'C:\ProgramData\chocolatey\bin\yasm.exe'
+          if (-not (Test-Path $yasm)) { throw 'YASM executable not found after installation.' }
+          Copy-Item $yasm 'C:\Windows\System32\yasm.exe' -Force
+          Copy-Item $yasm 'src\yasm.exe' -Force
+          [IO.File]::WriteAllText(
+            (Join-Path $PWD 'src\YASM.bat'),
+            "@echo off" + [Environment]::NewLine + "yasm.exe %*" + [Environment]::NewLine,
+            [Text.Encoding]::ASCII
+          )
+
+      - name: Use the XP-compatible LAV Filters 0.70.2 (x86)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:TEMP 'LAVFilters-0.70.2-x86.zip'
+          $unpack = Join-Path $env:TEMP 'LAVFilters-0.70.2-x86'
+          (New-Object Net.WebClient).DownloadFile(
+            'https://github.com/Nevcairiel/LAVFilters/releases/download/0.70.2/LAVFilters-0.70.2-x86.zip',
+            $zip
+          )
+          Expand-Archive -Path $zip -DestinationPath $unpack -Force
+
+          $splitter = Get-ChildItem -Path $unpack -Filter 'LAVSplitter.ax' -Recurse |
+            Select-Object -First 1
+          if (-not $splitter) { throw 'LAVSplitter.ax was not found in the 0.70.2 archive.' }
+
+          $lavSource = $splitter.Directory.FullName
+          $lavTarget = 'bin\mpc-hc_x86\LAVFilters'
+          New-Item -ItemType Directory -Force -Path $lavTarget | Out-Null
+          Get-ChildItem -Path $lavSource -Force |
+            ForEach-Object { Copy-Item $_.FullName -Destination $lavTarget -Recurse -Force }
+
+          $lavBuildTarget = 'src\thirdparty\LAVFilters\build_lavfilters.bat'
+          [IO.File]::WriteAllText($lavBuildTarget, "@echo off" + [Environment]::NewLine + "exit /b 0" + [Environment]::NewLine, [Text.Encoding]::ASCII)
+          Remove-Item $zip -Force
+          if (-not (Test-Path (Join-Path $lavTarget 'LAVSplitter.ax'))) {
+            throw 'LAV Filters were not copied to the MPC-HC output directory.'
+          }
+
+      - name: Generate version header and application manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $wrapper = @'
+          @echo off
+          pushd "%~dp0"
+          "C:\Program Files\Git\bin\bash.exe" ./version.sh --quiet
+          set "rc=%ERRORLEVEL%"
+          popd
+          exit /b %rc%
+          '@
+          [IO.File]::WriteAllText(
+            (Join-Path $PWD 'update_version.bat'),
+            $wrapper + [Environment]::NewLine,
+            [Text.Encoding]::ASCII
+          )
+          & .\update_version.bat --quiet
+          if ($LASTEXITCODE -ne 0) { throw "version.sh failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path 'build\version_rev.h')) { throw 'build/version_rev.h was not generated.' }
+          if (-not (Test-Path 'src\mpc-hc\res\mpc-hc.exe.manifest')) {
+            throw 'The MPC-HC executable manifest was not generated.'
+          }
+
+      - name: Build MPC-HC (Win32, v141_xp, SSE2)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $configuration = if ($env:BUILD_PROFILE -eq 'Lite') { 'Release Lite' } else { 'Release' }
+          New-Item -ItemType Directory -Force -Path 'bin\logs' | Out-Null
+          $log = Join-Path $PWD ("bin\logs\msbuild-" + $env:BUILD_PROFILE + ".log")
+          $args = @(
+            'mpc-hc.sln',
+            '/nologo',
+            '/m',
+            '/v:minimal',
+            "/p:Configuration=$configuration",
+            '/p:Platform=Win32',
+            '/p:PlatformToolset=v141_xp',
+            '/p:TargetPlatformVersion=7.0',
+            "/flp:LogFile=$log;Verbosity=normal"
+          )
+          & msbuild.exe @args
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path $log) { Get-Content $log -Tail 120 }
+            throw "MSBuild failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Validate XP target and prepare distributable files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $buildDir = if ($env:BUILD_PROFILE -eq 'Lite') {
+            'bin\mpc-hc_x86 Lite'
+          } else {
+            'bin\mpc-hc_x86'
+          }
+          $exe = Join-Path $buildDir 'mpc-hc.exe'
+          if (-not (Test-Path $exe)) { throw "Executable not found: $exe" }
+
+          if ($env:BUILD_PROFILE -eq 'Lite') {
+            $lavSource = 'bin\mpc-hc_x86\LAVFilters'
+            $lavTarget = Join-Path $buildDir 'LAVFilters'
+            New-Item -ItemType Directory -Force -Path $lavTarget | Out-Null
+            Get-ChildItem -Path $lavSource -Force |
+              ForEach-Object { Copy-Item $_.FullName -Destination $lavTarget -Recurse -Force }
+          }
+
+          $bytes = [IO.File]::ReadAllBytes((Resolve-Path $exe))
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          if ($bytes[$peOffset] -ne 0x50 -or $bytes[$peOffset + 1] -ne 0x45) {
+            throw 'Invalid PE signature.'
+          }
+          $coffOffset = $peOffset + 4
+          $machine = [BitConverter]::ToUInt16($bytes, $coffOffset)
+          $optionalHeader = $coffOffset + 20
+          $magic = [BitConverter]::ToUInt16($bytes, $optionalHeader)
+          $subsystem = [BitConverter]::ToUInt16($bytes, $optionalHeader + 68)
+          $subMajor = [BitConverter]::ToUInt16($bytes, $optionalHeader + 48)
+          $subMinor = [BitConverter]::ToUInt16($bytes, $optionalHeader + 50)
+          Write-Host ("PE machine=0x{0:X4}; optional-header=0x{1:X}; subsystem={2}; version={3}.{4:D2}" -f $machine, $magic, $subsystem, $subMajor, $subMinor)
+          if ($machine -ne 0x014c) { throw 'The executable is not x86 (IMAGE_FILE_MACHINE_I386).' }
+          if ($magic -ne 0x010b) { throw 'The executable is not PE32.' }
+          if ($subsystem -ne 2) { throw 'The executable is not a Windows GUI application.' }
+          if ($subMajor -ne 5 -or $subMinor -ne 1) {
+            throw "Expected XP subsystem 5.01; got $subMajor.$subMinor."
+          }
+
+          $dist = 'dist\MPC-HC-XP-Prescott-Win32-' + $env:BUILD_PROFILE
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Get-ChildItem -Path $buildDir -Force |
+            ForEach-Object { Copy-Item $_.FullName -Destination $dist -Recurse -Force }
+          $discard = @('.pdb','.ilk','.iobj','.ipdb','.obj','.lib','.exp')
+          Get-ChildItem -Path $dist -File -Recurse |
+            Where-Object { $discard -contains $_.Extension.ToLowerInvariant() } |
+            Remove-Item -Force
+          if (-not (Get-ChildItem -Path $dist -Filter 'LAVSplitter.ax' -Recurse)) {
+            throw 'The LAV Splitter filter is missing from the distributable folder.'
+          }
+          Write-Host ("Executable size: {0:N0} bytes" -f (Get-Item $exe).Length)
+          Write-Host ("Distributable files: {0}" -f (Get-ChildItem -Path $dist -File -Recurse).Count)
+
+      - name: Upload Windows XP build
+        uses: actions/upload-artifact@v4
+        with:
+          name: MPC-HC-XP-Prescott-Win32-${{ github.event.inputs.profile || 'Full' }}
+          path: dist/MPC-HC-XP-Prescott-Win32-${{ github.event.inputs.profile || 'Full' }}/**
+          if-no-files-found: error
+          compression-level: 9
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MPC-HC-XP-Prescott-build-logs
+          path: bin/logs/**
+          if-no-files-found: ignore
+          compression-level: 9

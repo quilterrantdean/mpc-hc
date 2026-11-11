@@ -26,6 +26,7 @@ template<typename K, typename V, class KTraits = CElementTraits<K>, class VTrait
 class CRenderingCache : private CAtlMap<K, POSITION, KTraits>
 {
 private:
+    using KINARGTYPE = typename KTraits::INARGTYPE;
     size_t m_maxSize;
     struct CPositionValue {
         POSITION pos;
