@@ -92,13 +92,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Could not extract DirectX SDK June 2010.' }
 
           $include = 'C:\DXSDK\DXSDK\Include'
-          # Avoid duplicate D3D10/11 declarations against the XP-era Windows SDK.
-          # D3Dcompiler.h is deliberately retained: PixelShaderCompiler.h includes it.
-          Remove-Item (Join-Path $include 'd3dcommon.h') -Force -ErrorAction SilentlyContinue
-          Get-ChildItem $include -File -Include 'd3d10*.h','d3d11*.h','dxgi*.h' |
-            Remove-Item -Force
-          if (-not (Test-Path (Join-Path $include 'D3Dcompiler.h'))) {
-            throw 'D3Dcompiler.h is missing from the DirectX SDK.'
+          # These headers are a matched set. D3Dcompiler.h includes D3D11 shader
+          # declarations, which in turn require the DirectX SDK's d3dcommon.h.
+          # Do not delete d3dcommon.h or the D3D11 shader headers.
+          foreach ($header in 'd3dcommon.h','d3d11shader.h','D3Dcompiler.h') {
+            if (-not (Test-Path (Join-Path $include $header))) {
+              throw "Required DirectX SDK header is missing: $header"
+            }
           }
           "DXSDK_DIR=C:\DXSDK\DXSDK\" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Remove-Item $installer -Force
@@ -167,6 +167,12 @@ jobs:
           & .\update_version.bat --quiet
           if ($LASTEXITCODE -ne 0) { throw "version.sh failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path 'build\version_rev.h')) { throw 'build/version_rev.h was not generated.' }
+          $versionRevision = Get-Content 'build\version_rev.h' -Raw
+          if ($versionRevision -notmatch '(?m)^#define MPC_VERSION_REV\s+[0-9]+\s*$') {
+            Write-Host $versionRevision
+            throw 'MPC_VERSION_REV must be an integer; version.sh did not produce a valid revision.'
+          }
+          Write-Host $versionRevision
           if (-not (Test-Path 'src\mpc-hc\res\mpc-hc.exe.manifest')) {
             throw 'The MPC-HC executable manifest was not generated.'
           }

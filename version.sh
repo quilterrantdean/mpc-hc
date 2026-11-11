@@ -42,16 +42,19 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
   ver_additional=
   echo "Warning: Git not available or not a git repo. Using dummy values for hash and version number."
 else
-  # Get information about the current version
-  describe=$(git describe --long --dirty)
-  [[ -z "$quiet" ]] && echo "Describe:  $describe"
+  # Get information about the current version. Include lightweight tags too.
+  describe=$(git describe --tags --long --dirty 2>/dev/null || true)
+  [[ -z "$quiet" ]] && echo "Describe:  ${describe:-<no reachable tag>}"
 
-  # Get the abbreviated hash of the current changeset
-  hash=${describe##*-g}
-
-  # Get the number changesets since the last tag
-  ver=${describe#*-}
-  ver=${ver%-g*}
+  # A missing tag must not generate an empty MPC_VERSION_REV (RC1017).
+  if [[ "$describe" =~ -([0-9]+)-g([0-9a-fA-F]+) ]]; then
+    ver=${BASH_REMATCH[1]}
+    hash=${BASH_REMATCH[2]}
+    [[ "$describe" == *-dirty ]] && hash+="-dirty"
+  else
+    ver=0
+    hash=$(git rev-parse --short HEAD 2>/dev/null || echo 0000000)
+  fi
 
   ver_additional=" ($hash)"
 
