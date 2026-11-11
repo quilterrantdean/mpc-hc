@@ -1,0 +1,291 @@
+name: Build MPC-HC Windows XP (Pentium 4 Prescott)
+
+# REQUISITOS
+#  - O repositório tem de ser um fork do mpc-hc/mpc-hc OFICIAL (arquivado em 2020, ainda
+#    compila para XP). O fork do clsid2 exige Windows 7 ou posterior e NÃO serve para XP.
+#  - Alvo: Windows XP SP3 de 32 bits, Pentium 4 Prescott (SSE2/SSE3).
+#
+# NOTA SOBRE "PRESCOTT"
+#  - O MSVC não tem -march/-mtune: o máximo para um Prescott é /arch:SSE2 (usado abaixo).
+#  - O -march=prescott só se aplica à parte GCC (FFmpeg do LAV Filters), que é onde
+#    está a descodificação, ou seja, o grosso da velocidade.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master, develop ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Traduções a manter no pacote final (códigos de Lang\mpcresources.<código>.dll).
+  # Vazio = só inglês (o mais leve). Exemplos: "pt_BR"  ou  "pt_BR,es"
+  KEEP_LANGS: ""
+
+jobs:
+  build-xp:
+    name: Build x86 (Windows XP / Prescott)
+    # O windows-2019 foi removido pelo GitHub em 30-06-2025. O windows-2022 traz o VS2022,
+    # que ainda consegue instalar o toolset v141_xp (alvo Windows XP).
+    runs-on: windows-2022
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Compilador/linker de 64 bits: evita falta de memória no LTCG (o de 32 bits tem tecto de 4 GB)
+      PreferredToolArchitecture: x64
+
+    steps:
+      - name: Checkout código (os submódulos tratam-se no passo seguinte)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Submódulos (o git.1f0.de está offline, usam-se espelhos)
+        shell: bash
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          # O LAV Filters do MPC-HC tem submódulos aninhados em git://git.1f0.de, que já não existe
+          # ("connection refused"). Um checkout recursivo aborta ali, por isso faz-se por fases.
+          lav=src/thirdparty/LAVFilters/src
+
+          # 1) Nível 1 (tudo o que está no GitHub), sem recursão
+          git submodule sync
+          git submodule update --init --jobs 4
+
+          # 2) Aninhados dos restantes (ex.: rapidjson -> gtest), excepto o LAV
+          git submodule foreach --quiet 'case "$sm_path" in src/thirdparty/LAVFilters/src) ;; *) git submodule update --init --recursive ;; esac'
+
+          # 3) Aninhados do LAV: o ffmpeg está no GitHub
+          git -C "$lav" submodule update --init ffmpeg
+
+          # 4) libbluray e qsdecoder: tenta cada espelho por ordem
+          tentar() {   # tentar <submódulo> <url-antigo> <url-novo>...
+            nome=$1; antigo=$2; shift 2
+            for novo in "$@"; do
+              git config --global --unset-all "url.$novo.insteadOf" 2>/dev/null || true
+              git config --global --add "url.$novo.insteadOf" "$antigo"
+              echo ">> $nome: $antigo -> $novo"
+              if git -C "$lav" submodule update --init "$nome"; then return 0; fi
+              git config --global --unset-all "url.$novo.insteadOf" 2>/dev/null || true
+            done
+            return 1
+          }
+          tentar libbluray "git://git.1f0.de/libbluray.git" \
+              "https://gitea.1f0.de/LAV/libbluray.git" \
+              "https://code.videolan.org/videolan/libbluray.git" \
+            || echo "::warning::libbluray não foi obtido: o LAV Splitter pode falhar a compilar"
+          tentar qsdecoder "git://git.1f0.de/qsdecoder.git" \
+              "https://gitea.1f0.de/LAV/qsdecoder.git" \
+            || echo "::warning::qsdecoder não foi obtido (QuickSync da Intel, irrelevante num Prescott)"
+
+          git submodule status --recursive
+
+      - name: Instalar toolset v141_xp (Windows XP) + ATL/MFC
+        run: |
+          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
+          $vsPath = & "$installer\vswhere.exe" -version '[17.0,18.0)' -products * -property installationPath | Select-Object -First 1
+          if (-not $vsPath) { throw "Visual Studio 2022 não encontrado neste runner" }
+          "VS_PATH=$vsPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          $xp = Join-Path $vsPath 'MSBuild\Microsoft\VC\v170\Platforms\Win32\PlatformToolsets\v141_xp'
+          if (-not (Test-Path $xp)) {
+            $vsArgs = @(
+              'modify', '--installPath', "`"$vsPath`"",
+              '--add', 'Microsoft.VisualStudio.Component.VC.v141.x86.x64',
+              '--add', 'Microsoft.VisualStudio.Component.VC.v141.ATL',
+              '--add', 'Microsoft.VisualStudio.Component.VC.v141.MFC',
+              '--add', 'Microsoft.VisualStudio.Component.WinXP',
+              '--quiet', '--norestart', '--nocache'
+            )
+            $p = Start-Process -FilePath "$installer\setup.exe" -ArgumentList $vsArgs -Wait -PassThru
+            Write-Host "setup.exe terminou com o código $($p.ExitCode)"
+            if ($p.ExitCode -notin 0, 3010) { throw "Falha a instalar os componentes do Visual Studio" }
+          }
+          if (-not (Test-Path $xp)) { throw "O toolset v141_xp continua em falta: $xp" }
+          Write-Host "v141_xp OK: $xp"
+          exit 0
+
+      - name: Instalar Windows SDK 8.1 e DirectX SDK (Junho 2010)
+        run: |
+          choco install windows-sdk-8.1 -y --no-progress
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Windows Kits\8.1\Include\um\windows.h")) {
+            Write-Host "::warning::Windows SDK 8.1 não foi encontrado; se a compilação reclamar de headers, é aqui."
+          }
+
+          # O instalador do DX SDK falha (erro S1023) se existir o VC++ 2010 Redistributable recente.
+          # Se não estiver instalado, o msiexec limita-se a devolver um erro que ignoramos.
+          foreach ($g in '{F0C3E5D1-1ADE-321E-8167-68EF0DE699A5}', '{1D8E6291-B0D5-35EC-8441-6616F567A0F7}') {
+            Start-Process msiexec.exe -ArgumentList "/qn /norestart /x $g" -Wait
+          }
+          choco install directx-sdk -y --no-progress
+
+          $dx = "${env:ProgramFiles(x86)}\Microsoft DirectX SDK (June 2010)\"
+          if (-not (Test-Path "${dx}Include\d3dx9.h")) { throw "DirectX SDK não ficou instalado em $dx" }
+          # A barra final é obrigatória: os .vcxproj usam $(DXSDK_DIR)Include
+          "DXSDK_DIR=$dx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          exit 0
+
+      - name: Configurar MSYS2 / MinGW-w64 de 32 bits (FFmpeg do LAV Filters)
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW32
+          update: true
+          install: >-
+            base-devel
+            make
+            pkgconf
+            mingw-w64-i686-toolchain
+            mingw-w64-i686-yasm
+            mingw-w64-i686-nasm
+
+      - name: Criar build.user.bat (caminhos que o build.bat do MPC-HC exige)
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $msys = if ($env:MSYS2_ROOT) { $env:MSYS2_ROOT.TrimEnd('\', '/') } else { 'C:\msys64' }
+          $vs = $env:VS_PATH.TrimEnd('\')
+          foreach ($f in "$msys\usr\bin\bash.exe", "$msys\mingw32\bin\gcc.exe", "$msys\mingw32\bin\yasm.exe") {
+            if (-not (Test-Path $f)) { throw "Em falta: $f" }
+          }
+          # O MPC-HC espera o yasm.exe em <MSYS>\usr\bin
+          Copy-Item "$msys\mingw32\bin\yasm.exe" "$msys\usr\bin\yasm.exe" -Force
+
+          $bat = @"
+          @ECHO OFF
+          SET "MSYSTEM=MINGW32"
+          SET "MPCHC_MSYS=$msys"
+          SET "MPCHC_MINGW32=$msys\mingw32"
+          SET "MPCHC_MINGW64=%MPCHC_MINGW32%"
+          SET "MPCHC_GIT=C:\Program Files\Git"
+          SET "MPCHC_VS_PATH=$vs\"
+          "@
+          [IO.File]::WriteAllText("$PWD\build.user.bat", ($bat -replace "`r?`n", "`r`n"), [Text.Encoding]::ASCII)
+          Get-Content build.user.bat
+
+      - name: Forçar toolset v141_xp e injectar optimizações (Directory.Build.targets)
+        run: |
+          # 1) Todos os projectos passam a usar o toolset de Windows XP.
+          #    (Um Directory.Build.props NÃO chega: cada .vcxproj define o seu PlatformToolset e sobrepõe-se.)
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+          $alterados = 0
+          Get-ChildItem -Path . -Recurse -File -Include *.vcxproj, *.props |
+            Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' } |
+            ForEach-Object {
+              $antes = [IO.File]::ReadAllText($_.FullName)
+              $depois = [regex]::Replace($antes, '<PlatformToolset(\s[^>]*)?>[^<]*</PlatformToolset>', '<PlatformToolset$1>v141_xp</PlatformToolset>')
+              if ($depois -ne $antes) { [IO.File]::WriteAllText($_.FullName, $depois, $utf8); $alterados++ }
+            }
+          Write-Host "PlatformToolset alterado para v141_xp em $alterados ficheiros"
+
+          # 2) Optimizações. Vai num .targets (carregado DEPOIS de cada .vcxproj) para sobrepor
+          #    as definições dos projectos. Não se toca em SubSystem: o v141_xp já usa 5.01.
+          @'
+          <Project>
+            <!-- Prescott: L1 pequena e trace cache de 12K micro-ops, por isso código compacto também é mais rápido.
+                 MaxSpeed + Favor Size = /O2 /Os. SSE2 é o máximo que o MSVC oferece para este CPU. -->
+            <PropertyGroup Condition="'$(Platform)'=='Win32' And $(Configuration.StartsWith('Release'))">
+              <WholeProgramOptimization>true</WholeProgramOptimization>
+            </PropertyGroup>
+            <ItemDefinitionGroup Condition="'$(Platform)'=='Win32' And $(Configuration.StartsWith('Release'))">
+              <ClCompile>
+                <Optimization>MaxSpeed</Optimization>
+                <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
+                <IntrinsicFunctions>true</IntrinsicFunctions>
+                <StringPooling>true</StringPooling>
+                <FunctionLevelLinking>true</FunctionLevelLinking>
+                <OmitFramePointers>true</OmitFramePointers>
+                <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+                <BufferSecurityCheck>false</BufferSecurityCheck>
+                <AdditionalOptions>%(AdditionalOptions) /Gw</AdditionalOptions>
+              </ClCompile>
+              <Lib>
+                <LinkTimeCodeGeneration>true</LinkTimeCodeGeneration>
+              </Lib>
+              <Link>
+                <OptimizeReferences>true</OptimizeReferences>
+                <EnableCOMDATFolding>true</EnableCOMDATFolding>
+                <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+              </Link>
+            </ItemDefinitionGroup>
+          </Project>
+          '@ | Set-Content -Path Directory.Build.targets -Encoding utf8
+
+      - name: Aplicar -march=prescott ao FFmpeg (LAV Filters)
+        shell: bash
+        run: |
+          # O env CFLAGS não chega ao configure do FFmpeg; as flags têm de entrar no script do LAV.
+          f=$(find src/thirdparty -name build_ffmpeg.sh -not -path '*/.git/*' | head -n 1)
+          echo "Script encontrado: ${f:-<nenhum>}"
+          if [ -z "$f" ]; then
+            echo "::warning::build_ffmpeg.sh não encontrado; o FFmpeg fica sem -march=prescott"
+          elif grep -q -- '-mstackrealign' "$f"; then
+            sed -i 's/-mstackrealign/-mstackrealign -march=prescott -mtune=prescott/' "$f"
+            grep -n -- 'prescott' "$f"
+          else
+            echo "::warning::Padrão -mstackrealign não encontrado em $f; edita as flags do FFmpeg à mão"
+          fi
+
+      - name: Compilar MPC-HC (Release x86, toolset v141_xp)
+        run: |
+          $ErrorActionPreference = 'Continue'
+          cmd /c "call build.bat Build x86 MPCHC Release Silent Nocolors" 2>&1 | Tee-Object -FilePath build-full.log
+          $rc = $LASTEXITCODE
+          if ($rc -ne 0) { throw "build.bat terminou com o código $rc" }
+          # O build.bat pode devolver 0 mesmo quando falha, por isso confirma-se o resultado
+          if (-not (Test-Path 'bin\mpc-hc_x86\mpc-hc.exe')) { throw "mpc-hc.exe não foi gerado (ver o artefacto logs-compilacao)" }
+
+      - name: Organizar e reduzir o pacote final
+        run: |
+          $src = 'bin\mpc-hc_x86'
+          New-Item -ItemType Directory -Path dist_xp -Force | Out-Null
+          Copy-Item -Path "$src\*" -Destination dist_xp -Recurse -Force
+
+          # Ficheiros que não são precisos para executar
+          Get-ChildItem -Path dist_xp -Recurse -File -Include *.pdb, *.iobj, *.ipdb, *.ilk, *.lib, *.exp, *.obj |
+            Remove-Item -Force
+
+          # Traduções: ficam só as listadas em KEEP_LANGS (vazio = só inglês)
+          $keep = @($env:KEEP_LANGS -split '[,;\s]+' | Where-Object { $_ })
+          $lang = 'dist_xp\Lang'
+          if (Test-Path $lang) {
+            Get-ChildItem -Path $lang -Filter 'mpcresources.*.dll' |
+              Where-Object { $keep -notcontains ($_.BaseName -replace '^mpcresources\.', '') } |
+              Remove-Item -Force
+            if (-not (Get-ChildItem -Path $lang -Force)) { Remove-Item $lang }
+          }
+
+          # Resumo de tamanhos no log
+          $todos = Get-ChildItem -Path dist_xp -Recurse -File
+          '{0:N0} KB no total, {1} ficheiros' -f (($todos | Measure-Object Length -Sum).Sum / 1KB), $todos.Count
+          $todos | Sort-Object Length -Descending | Select-Object -First 10 |
+            ForEach-Object { '{0,10:N0} KB  {1}' -f ($_.Length / 1KB), $_.Name }
+
+      - name: Publicar executável (artefacto)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MPC-HC_WinXP_Pentium4_Prescott
+          path: dist_xp/
+          compression-level: 9
+          if-no-files-found: error
+
+      - name: Publicar logs (mesmo se a compilação falhar)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-compilacao
+          path: |
+            build-full.log
+            build.user.bat
+            Directory.Build.targets
+            bin/logs/
+          if-no-files-found: ignore
