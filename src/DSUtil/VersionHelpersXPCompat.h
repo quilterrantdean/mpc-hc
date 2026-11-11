@@ -88,10 +88,6 @@ VERSIONHELPERAPI IsWindows8Point1OrGreater()
     return IsWindowsVersionOrGreater(6, 3, 0);
 }
 
-VERSIONHELPERAPI IsWindows10OrGreater()
-{
-    return IsWindowsVersionOrGreater(10, 0, 0);
-}
 
 VERSIONHELPERAPI IsWindowsServer()
 {
