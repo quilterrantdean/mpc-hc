@@ -34,7 +34,7 @@ CPixelShaderCompiler::CPixelShaderCompiler(IDirect3DDevice9* pD3DDev, bool fStay
 {
     static_assert(D3D_COMPILER_VERSION == MPC_D3D_COMPILER_VERSION,
                   "MPC_D3D_COMPILER_VERSION define used in the installer needs to be updated.");
-    m_hDll = LoadLibrary(D3DCOMPILER_DLL);
+    m_hDll = LoadLibrary(MPC_D3D_COMPILER_DLL);
 
     if (m_hDll) {
         m_pD3DCompile = (pD3DCompile)GetProcAddress(m_hDll, "D3DCompile");
@@ -44,11 +44,11 @@ CPixelShaderCompiler::CPixelShaderCompiler(IDirect3DDevice9* pD3DDev, bool fStay
     if (!fStaySilent) {
         if (!m_hDll) {
             CString msg;
-            msg.Format(IDS_SHADER_DLL_ERR_0, D3DCOMPILER_DLL);
+            msg.Format(IDS_SHADER_DLL_ERR_0, MPC_D3D_COMPILER_DLL);
             AfxMessageBox(msg, MB_ICONWARNING | MB_OK);
         } else if (!m_pD3DCompile || !m_pD3DDisassemble) {
             CString msg;
-            msg.Format(IDS_SHADER_DLL_ERR_1, D3DCOMPILER_DLL);
+            msg.Format(IDS_SHADER_DLL_ERR_1, MPC_D3D_COMPILER_DLL);
             AfxMessageBox(msg, MB_ICONWARNING | MB_OK);
         }
     }

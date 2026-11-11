@@ -22,6 +22,7 @@
 
 #include "stdafx.h"
 #include "AsyncReader.h"
+#include "../../atl_xp_socket_compat.h"
 #include <afxsock.h>
 #include <afxinet.h>
 #include "../../../DSUtil/DSUtil.h"

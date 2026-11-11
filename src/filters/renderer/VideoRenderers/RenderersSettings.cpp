@@ -21,6 +21,7 @@
 
 #include "stdafx.h"
 #include "RenderersSettings.h"
+#include "../../atl_xp_socket_compat.h"
 #include "../../../mpc-hc/AppSettings.h"
 #include "../../../mpc-hc/mplayerc.h"
 #include <mpc-hc_config.h>
