@@ -38,19 +38,19 @@ CSaveTextFileDialog::CSaveTextFileDialog(
 {
     // customization has to be done before OnInitDialog
     IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
-
-    pfdc->StartVisualGroup(IDS_TEXTFILE_ENC, ResStr(IDS_TEXTFILE_ENC));
-    pfdc->AddComboBox(IDC_COMBO1);
-    pfdc->AddControlItem(IDC_COMBO1, CTextFile::DEFAULT_ENCODING, _T("Automatic"));
-    pfdc->AddControlItem(IDC_COMBO1, CTextFile::ANSI, _T("ANSI"));
-    pfdc->AddControlItem(IDC_COMBO1, CTextFile::LE16, _T("Unicode (UTF-16 LE BOM)"));
-    pfdc->AddControlItem(IDC_COMBO1, CTextFile::BE16, _T("Unicode (UTF-16 BE BOM)"));
-    pfdc->AddControlItem(IDC_COMBO1, CTextFile::UTF8, _T("UTF-8"));
-    pfdc->SetSelectedControlItem(IDC_COMBO1, m_e);
-    pfdc->EndVisualGroup();
-    pfdc->MakeProminent(IDS_TEXTFILE_ENC);
-
-    pfdc->Release();
+    if (pfdc != nullptr) {
+        pfdc->StartVisualGroup(IDS_TEXTFILE_ENC, ResStr(IDS_TEXTFILE_ENC));
+        pfdc->AddComboBox(IDC_COMBO1);
+        pfdc->AddControlItem(IDC_COMBO1, CTextFile::DEFAULT_ENCODING, _T("Automatic"));
+        pfdc->AddControlItem(IDC_COMBO1, CTextFile::ANSI, _T("ANSI"));
+        pfdc->AddControlItem(IDC_COMBO1, CTextFile::LE16, _T("Unicode (UTF-16 LE BOM)"));
+        pfdc->AddControlItem(IDC_COMBO1, CTextFile::BE16, _T("Unicode (UTF-16 BE BOM)"));
+        pfdc->AddControlItem(IDC_COMBO1, CTextFile::UTF8, _T("UTF-8"));
+        pfdc->SetSelectedControlItem(IDC_COMBO1, m_e);
+        pfdc->EndVisualGroup();
+        pfdc->MakeProminent(IDS_TEXTFILE_ENC);
+        pfdc->Release();
+    }
 }
 
 CSaveTextFileDialog::~CSaveTextFileDialog()
@@ -71,11 +71,14 @@ END_MESSAGE_MAP()
 
 BOOL CSaveTextFileDialog::OnFileNameOK()
 {
-    DWORD result;
     IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
-    pfdc->GetSelectedControlItem(IDC_COMBO1, &result);
-    pfdc->Release();
-    m_e = (CTextFile::enc)result;
+    if (pfdc != nullptr) {
+        DWORD result = static_cast<DWORD>(m_e);
+        if (SUCCEEDED(pfdc->GetSelectedControlItem(IDC_COMBO1, &result))) {
+            m_e = static_cast<CTextFile::enc>(result);
+        }
+        pfdc->Release();
+    }
 
     return __super::OnFileNameOK();
 }

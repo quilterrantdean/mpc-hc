@@ -848,13 +848,13 @@ void CMPlayerCApp::InitProfile()
 
     if (!m_pszRegistryKey) {
         // Don't reread mpc-hc.ini if the cache needs to be flushed or it was accessed recently
-        if (m_bProfileInitialized && (m_bQueuedProfileFlush || GetTickCount64() - m_dwProfileLastAccessTick < 100ULL)) {
-            m_dwProfileLastAccessTick = GetTickCount64();
+        if (m_bProfileInitialized && (m_bQueuedProfileFlush || MpcGetTickCount64() - m_dwProfileLastAccessTick < 100ULL)) {
+            m_dwProfileLastAccessTick = MpcGetTickCount64();
             return;
         }
 
         m_bProfileInitialized = true;
-        m_dwProfileLastAccessTick = GetTickCount64();
+        m_dwProfileLastAccessTick = MpcGetTickCount64();
 
         ASSERT(m_pszProfileName);
         if (!PathUtils::Exists(m_pszProfileName)) {
@@ -925,7 +925,7 @@ void CMPlayerCApp::InitProfile()
         fpStatus = fclose(fp);
         ASSERT(fpStatus == 0);
 
-        m_dwProfileLastAccessTick = GetTickCount64();
+        m_dwProfileLastAccessTick = MpcGetTickCount64();
     }
 }
 

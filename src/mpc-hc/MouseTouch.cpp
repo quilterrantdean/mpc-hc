@@ -132,7 +132,7 @@ void CMouse::StartMouseHider(const CPoint& screenPoint)
         m_pMainFrame->m_timer32Hz.Subscribe(t, std::bind(&CMouse::MouseHiderCallback, this));
         m_bMouseHiderStarted = true;
     }
-    m_dwMouseHiderStartTick = GetTickCount64();
+    m_dwMouseHiderStartTick = MpcGetTickCount64();
 }
 void CMouse::StopMouseHider()
 {
@@ -143,7 +143,7 @@ void CMouse::StopMouseHider()
 void CMouse::MouseHiderCallback()
 {
     ASSERT(!m_pMainFrame->IsInteractiveVideo());
-    if (GetTickCount64() > m_dwMouseHiderStartTick + CURSOR_HIDE_TIMEOUT) {
+    if (MpcGetTickCount64() > m_dwMouseHiderStartTick + CURSOR_HIDE_TIMEOUT) {
         StopMouseHider();
         ASSERT(m_cursor != Cursor::NONE);
         m_cursor = Cursor::NONE;

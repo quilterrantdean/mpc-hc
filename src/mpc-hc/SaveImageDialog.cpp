@@ -33,18 +33,16 @@ CSaveImageDialog::CSaveImageDialog(
                 lpszFilter, pParentWnd, 0),
     m_nJpegQuality(nJpegQuality)
 {
-#if defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0600)
     IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
-    CString str;
-
-    pfdc->StartVisualGroup(IDS_IMAGE_JPEG_QUALITY, ResStr(IDS_IMAGE_JPEG_QUALITY));
-    pfdc->AddText(IDS_IMAGE_QUALITY, ResStr(IDS_IMAGE_QUALITY));
-    str.Format(L"%d", std::max(0, std::min(100, m_nJpegQuality)));
-    pfdc->AddEditBox(IDC_EDIT1, str);
-    pfdc->EndVisualGroup();
-
-    pfdc->Release();
-#endif
+    if (pfdc != nullptr) {
+        CString str;
+        pfdc->StartVisualGroup(IDS_IMAGE_JPEG_QUALITY, ResStr(IDS_IMAGE_JPEG_QUALITY));
+        pfdc->AddText(IDS_IMAGE_QUALITY, ResStr(IDS_IMAGE_QUALITY));
+        str.Format(L"%d", std::max(0, std::min(100, m_nJpegQuality)));
+        pfdc->AddEditBox(IDC_EDIT1, str);
+        pfdc->EndVisualGroup();
+        pfdc->Release();
+    }
 }
 
 CSaveImageDialog::~CSaveImageDialog()
@@ -63,14 +61,14 @@ END_MESSAGE_MAP()
 
 BOOL CSaveImageDialog::OnFileNameOK()
 {
-#if defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0600)
-    CComPtr<IFileDialogCustomize> pfdc = GetIFileDialogCustomize();
-    CComHeapPtr<WCHAR> result;
-
-    if (SUCCEEDED(pfdc->GetEditBoxText(IDC_EDIT1, &result))) {
-        m_nJpegQuality = _wtoi(result);
+    IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
+    if (pfdc != nullptr) {
+        CComHeapPtr<WCHAR> result;
+        if (SUCCEEDED(pfdc->GetEditBoxText(IDC_EDIT1, &result))) {
+            m_nJpegQuality = _wtoi(result);
+        }
+        pfdc->Release();
     }
-#endif
 
     m_nJpegQuality = std::max(0, std::min(100, m_nJpegQuality));
 
@@ -81,19 +79,17 @@ void CSaveImageDialog::OnTypeChange()
 {
     __super::OnTypeChange();
 
-#if defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0600)
     IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
-
-    if (m_pOFN->nFilterIndex == 2) { // JPEG encoding is chosen
-        pfdc->SetControlState(IDS_IMAGE_JPEG_QUALITY, CDCS_ENABLEDVISIBLE);
-        pfdc->SetControlState(IDS_IMAGE_QUALITY, CDCS_ENABLEDVISIBLE);
-        pfdc->SetControlState(IDC_EDIT1, CDCS_ENABLEDVISIBLE);
-    } else {
-        pfdc->SetControlState(IDS_IMAGE_JPEG_QUALITY, CDCS_INACTIVE);
-        pfdc->SetControlState(IDS_IMAGE_QUALITY, CDCS_INACTIVE);
-        pfdc->SetControlState(IDC_EDIT1, CDCS_INACTIVE);
+    if (pfdc != nullptr) {
+        if (m_pOFN->nFilterIndex == 2) { // JPEG encoding is chosen
+            pfdc->SetControlState(IDS_IMAGE_JPEG_QUALITY, CDCS_ENABLEDVISIBLE);
+            pfdc->SetControlState(IDS_IMAGE_QUALITY, CDCS_ENABLEDVISIBLE);
+            pfdc->SetControlState(IDC_EDIT1, CDCS_ENABLEDVISIBLE);
+        } else {
+            pfdc->SetControlState(IDS_IMAGE_JPEG_QUALITY, CDCS_INACTIVE);
+            pfdc->SetControlState(IDS_IMAGE_QUALITY, CDCS_INACTIVE);
+            pfdc->SetControlState(IDC_EDIT1, CDCS_INACTIVE);
+        }
+        pfdc->Release();
     }
-
-    pfdc->Release();
-#endif
 }

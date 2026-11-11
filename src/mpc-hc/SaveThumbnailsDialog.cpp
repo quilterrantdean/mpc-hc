@@ -37,29 +37,26 @@ CSaveThumbnailsDialog::CSaveThumbnailsDialog(
     m_width(width)
 {
     // Vista's IFileDialog customization is unavailable on Windows XP.
-#if defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0600)
     // customization has to be done before OnInitDialog
     IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
-    CStringW str;
+    if (pfdc != nullptr) {
+        CStringW str;
+        pfdc->StartVisualGroup(IDS_THUMB_IMAGE_WIDTH, ResStr(IDS_THUMB_IMAGE_WIDTH));
+        pfdc->AddText(IDS_THUMB_PIXELS, ResStr(IDS_THUMB_PIXELS));
+        str.Format(L"%d", std::max(256, std::min(2560, m_width)));
+        pfdc->AddEditBox(IDC_EDIT4, str);
+        pfdc->EndVisualGroup();
 
-    pfdc->StartVisualGroup(IDS_THUMB_IMAGE_WIDTH, ResStr(IDS_THUMB_IMAGE_WIDTH));
-    pfdc->AddText(IDS_THUMB_PIXELS, ResStr(IDS_THUMB_PIXELS));
-    str.Format(L"%d", std::max(256, std::min(2560, m_width)));
-    pfdc->AddEditBox(IDC_EDIT4, str);
-    pfdc->EndVisualGroup();
-
-    pfdc->StartVisualGroup(IDS_THUMB_THUMBNAILS, ResStr(IDS_THUMB_THUMBNAILS));
-    pfdc->AddText(IDS_THUMB_ROWNUMBER, ResStr(IDS_THUMB_ROWNUMBER));
-    str.Format(L"%d", std::max(1, std::min(20, m_rows)));
-    pfdc->AddEditBox(IDC_EDIT2, str);
-
-    pfdc->AddText(IDS_THUMB_COLNUMBER, ResStr(IDS_THUMB_COLNUMBER));
-    str.Format(L"%d", std::max(1, std::min(10, m_cols)));
-    pfdc->AddEditBox(IDC_EDIT3, str);
-    pfdc->EndVisualGroup();
-
-    pfdc->Release();
-#endif
+        pfdc->StartVisualGroup(IDS_THUMB_THUMBNAILS, ResStr(IDS_THUMB_THUMBNAILS));
+        pfdc->AddText(IDS_THUMB_ROWNUMBER, ResStr(IDS_THUMB_ROWNUMBER));
+        str.Format(L"%d", std::max(1, std::min(20, m_rows)));
+        pfdc->AddEditBox(IDC_EDIT2, str);
+        pfdc->AddText(IDS_THUMB_COLNUMBER, ResStr(IDS_THUMB_COLNUMBER));
+        str.Format(L"%d", std::max(1, std::min(10, m_cols)));
+        pfdc->AddEditBox(IDC_EDIT3, str);
+        pfdc->EndVisualGroup();
+        pfdc->Release();
+    }
 }
 
 CSaveThumbnailsDialog::~CSaveThumbnailsDialog()
@@ -80,24 +77,24 @@ END_MESSAGE_MAP()
 
 BOOL CSaveThumbnailsDialog::OnFileNameOK()
 {
-#if defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0600)
-    CComPtr<IFileDialogCustomize> pfdc = GetIFileDialogCustomize();
-    CComHeapPtr<WCHAR> result;
+    IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
+    if (pfdc != nullptr) {
+        CComHeapPtr<WCHAR> result;
+        if (SUCCEEDED(pfdc->GetEditBoxText(IDC_EDIT2, &result))) {
+            m_rows = _wtoi(result);
+        }
 
-    if (SUCCEEDED(pfdc->GetEditBoxText(IDC_EDIT2, &result))) {
-        m_rows = _wtoi(result);
-    }
+        result.Free();
+        if (SUCCEEDED(pfdc->GetEditBoxText(IDC_EDIT3, &result))) {
+            m_cols = _wtoi(result);
+        }
 
-    result.Free();
-    if (SUCCEEDED(pfdc->GetEditBoxText(IDC_EDIT3, &result))) {
-        m_cols = _wtoi(result);
+        result.Free();
+        if (SUCCEEDED(pfdc->GetEditBoxText(IDC_EDIT4, &result))) {
+            m_width = _wtoi(result);
+        }
+        pfdc->Release();
     }
-
-    result.Free();
-    if (SUCCEEDED(pfdc->GetEditBoxText(IDC_EDIT4, &result))) {
-        m_width = _wtoi(result);
-    }
-#endif
 
     return __super::OnFileNameOK();
 }

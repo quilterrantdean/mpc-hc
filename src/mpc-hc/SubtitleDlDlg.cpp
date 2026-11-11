@@ -281,8 +281,7 @@ void CSubtitleDlDlg::OnOK()
         if (m_list.GetCheck(i) == TRUE) {
 
             SubtitlesInfo& subtitlesInfo = *(SubtitlesInfo*)(m_list.GetItemData(i));
-            LVITEMINDEX lvii = { i, -1 };
-            m_list.SetItemIndexState(&lvii, INDEXTOSTATEIMAGEMASK(0), LVIS_STATEIMAGEMASK);
+            m_list.SetItemState(i, INDEXTOSTATEIMAGEMASK(0), LVIS_STATEIMAGEMASK);
             subtitlesInfo.Download(bActivate);
             bActivate = false;
         }
@@ -601,8 +600,7 @@ afx_msg LRESULT CSubtitleDlDlg::OnDownloaded(WPARAM /*wParam*/, LPARAM lParam)
     for (int i = 0; i < m_list.GetItemCount(); ++i) {
         SubtitlesInfo& iter = *(SubtitlesInfo*)m_list.GetItemData(i);
         if (iter.UID() == _fileInfo.UID()) {
-            LVITEMINDEX lvii = { i, -1 };
-            m_list.SetItemIndexState(&lvii, INDEXTOSTATEIMAGEMASK(0), LVIS_STATEIMAGEMASK);
+            m_list.SetItemState(i, INDEXTOSTATEIMAGEMASK(0), LVIS_STATEIMAGEMASK);
         }
     }
 

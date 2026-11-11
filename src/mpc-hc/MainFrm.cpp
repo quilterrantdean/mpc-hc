@@ -15909,7 +15909,9 @@ void CMainFrame::OnFileOpendirectory()
     CString path;
 
     CFileDialog dlg(TRUE);
-    dlg.AddCheckButton(IDS_MAINFRM_DIR_CHECK, ResStr(IDS_MAINFRM_DIR_CHECK), TRUE);
+    if (IsWindowsVistaOrGreater()) {
+        dlg.AddCheckButton(IDS_MAINFRM_DIR_CHECK, ResStr(IDS_MAINFRM_DIR_CHECK), TRUE);
+    }
     IFileOpenDialog* openDlgPtr = dlg.GetIFileOpenDialog();
 
     if (openDlgPtr != nullptr) {

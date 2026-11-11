@@ -498,7 +498,7 @@ void CMainFrameControls::UpdateToolbarsVisibility()
     }
 
     const bool bNoTimer = m_zoneHideTicks.empty();
-    const ULONGLONG dwTick = GetTickCount64();
+    const ULONGLONG dwTick = MpcGetTickCount64();
 
     for (const auto& pair : m_zoneHideTicks) {
         if (pair.second <= dwTick && !(mask.maskShow & pair.first)) {
@@ -784,7 +784,7 @@ void CMainFrameControls::LockHideZone(DockZone zone)
     ASSERT(zone != DOCK_NONE);
     m_zoneHideLocks.insert(zone);
     auto it = m_zoneHideTicks.find(zone);
-    const ULONGLONG dwNewHideTick = GetTickCount64() + 1000ULL;
+    const ULONGLONG dwNewHideTick = MpcGetTickCount64() + 1000ULL;
     if (it != m_zoneHideTicks.end()) {
         ULONGLONG& dwHideTick = it->second;
         if (dwHideTick < dwNewHideTick) {

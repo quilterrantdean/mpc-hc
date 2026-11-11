@@ -264,7 +264,7 @@ void CPPagePlayer::OnUpdatePos(CCmdUI* pCmdUI)
 
 void CPPagePlayer::OnUpdateSaveToIni(CCmdUI* pCmdUI)
 {
-    ULONGLONG dwTick = GetTickCount64();
+    ULONGLONG dwTick = MpcGetTickCount64();
     // run this check no often than once per second
     if (dwTick - m_dwCheckIniLastTick >= 1000ULL) {
         CPath iniDirPath(AfxGetMyApp()->GetIniPath());

@@ -34,6 +34,7 @@
 
 // XP/ATL socket name mapping must follow MFC's Windows.h setup.
 #include "../filters/atl_xp_socket_compat.h"
+#include "XpApiCompat.h"
 
 // APPCOMMAND values absent from the XP-target SDK headers.
 #ifndef APPCOMMAND_DELETE

@@ -57,9 +57,11 @@ CSaveSubtitlesFileDialog::CSaveSubtitlesFileDialog(
 
 void CSaveSubtitlesFileDialog::InitCustomization()
 {
-    // customization has to be done before OnInitDialog
+    // The classic XP file dialog has no IFileDialogCustomize interface.
     IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
-    ASSERT(pfdc);
+    if (pfdc == nullptr) {
+        return;
+    }
 
     VERIFY(SUCCEEDED(pfdc->StartVisualGroup(IDS_SUBFILE_DELAY, ResStr(IDS_SUBFILE_DELAY))));
 
@@ -99,18 +101,16 @@ END_MESSAGE_MAP()
 BOOL CSaveSubtitlesFileDialog::OnFileNameOK()
 {
     IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
-    ASSERT(pfdc);
+    if (pfdc != nullptr) {
+        WCHAR* strDelay = nullptr;
+        if (SUCCEEDED(pfdc->GetEditBoxText(IDC_EDIT1, &strDelay)) && strDelay) {
+            m_delay = _tcstol(strDelay, nullptr, 10);
+            CoTaskMemFree(strDelay);
+        }
 
-    WCHAR* strDelay = nullptr;
-    VERIFY(SUCCEEDED(pfdc->GetEditBoxText(IDC_EDIT1, &strDelay)));
-    if (strDelay) {
-        m_delay = _tcstol(strDelay, nullptr, 10);
-        CoTaskMemFree(strDelay);
+        pfdc->GetCheckButtonState(IDC_CHECK1, &m_bSaveExternalStyleFile);
+        pfdc->Release();
     }
-
-    VERIFY(SUCCEEDED(pfdc->GetCheckButtonState(IDC_CHECK1, &m_bSaveExternalStyleFile)));
-
-    pfdc->Release();
 
     return __super::OnFileNameOK();
 }
@@ -126,10 +126,9 @@ void CSaveSubtitlesFileDialog::OnTypeChange()
         bool bDisableExternalStyleCheckBox = (subType == Subtitle::SSA || subType == Subtitle::ASS);
 
         IFileDialogCustomize* pfdc = GetIFileDialogCustomize();
-        ASSERT(pfdc);
-
-        VERIFY(SUCCEEDED(pfdc->SetControlState(IDC_CHECK1, bDisableExternalStyleCheckBox ? (CDCS_INACTIVE | CDCS_VISIBLE) : CDCS_ENABLEDVISIBLE)));
-
-        pfdc->Release();
+        if (pfdc != nullptr) {
+            VERIFY(SUCCEEDED(pfdc->SetControlState(IDC_CHECK1, bDisableExternalStyleCheckBox ? (CDCS_INACTIVE | CDCS_VISIBLE) : CDCS_ENABLEDVISIBLE)));
+            pfdc->Release();
+        }
     }
 }
